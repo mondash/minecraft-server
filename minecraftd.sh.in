@@ -95,13 +95,13 @@ is_player_online() {
 	# are no players on the server. Should this test fail as well. Assume that a player is online.
 	if [[ $(echo "${response}" | sed -n -r -e 's/.*\: ?//p' | tr -d '\n' | wc -c) -le 1 ]]; then
 		# No player is online
-		return 0
+		return 1
 	elif [[ "x$(echo "${response}" | sed -n -r -e 's/.*there are[^0-9+]*([0-9]+).*$/\1/ip' | tr -d '\n')" == "x0" ]]; then
 		# No player is online
-		return 0
+		return 1
 	else
 		# A player is online (or it could not be determined)
-		return 1
+		return 0
 	fi
 }
 
@@ -129,6 +129,9 @@ idle_server_daemon() {
 				# An administrator is connected to the console, pause player checking
 				echo "An admin is connected to the console. Pause player checking."
 			elif is_player_online; then
+				# Reset timer since there is an active player on the server
+				no_player=0
+			else
 				# No player was seen on the server through list
 				no_player=$(( no_player + CHECK_PLAYER_TIME ))
 				# Stop the game server if no player was active for at least ${IDLE_IF_TIME}
@@ -148,9 +151,6 @@ idle_server_daemon() {
 					echo "Netcat caught a connection. The server is coming up again..."
 					IDLE_SERVER="false" ${INAME} start
 				fi
-			else
-				# Reset timer since there is an active player on the server
-				no_player=0
 			fi
 		else
 			# Reset timer and give the player 300 seconds to connect after pinging
@@ -257,10 +257,6 @@ server_stop() {
 
 		# Check for active player
 		if is_player_online; then
-			# No player was seen on the server through list
-			echo -en "Server is going down..."
-			game_command stop
-		else
 			# Player(s) were seen on the server through list (or an error occurred)
 			# Warning the users through the server console
 			game_command say "Server is going down in 10 seconds! HURRY UP WITH WHATEVER YOU ARE DOING!"
@@ -271,8 +267,12 @@ server_stop() {
 				echo -n " $(( 10 - i ))"
 				sleep 1
 			done
-			game_command stop
+		else
+			# No player was seen on the server through list
+			echo -en "Server is going down..."
 		fi
+
+		game_command stop
 
 		# Finish as soon as the server has shut down completely
 		for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
