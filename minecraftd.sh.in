@@ -457,20 +457,13 @@ server_console() {
 
 # Check if there is a session available
 socket_has_session() {
-	if [[ "$(whoami)" != "${GAME_USER}" ]]; then
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" has-session -t "${1}":0.0 2> /dev/null
-		return $?
-	fi
-	tmux -L "${SESSION_NAME}" has-session -t "${1}":0.0 2> /dev/null
+	"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" has-session -t "${1}":0.0 2> /dev/null
 	return $?
 }
 
 socket_session_is_alive() {
 	if socket_has_session "${1}"; then
-		if [[ "$(whoami)" != "${GAME_USER}" ]]; then
-			return "$("${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
-		fi
-		return "$(tmux -L "${SESSION_NAME}" list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
+		return "$("${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
 	else
 		return 1
 	fi
