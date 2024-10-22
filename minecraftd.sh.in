@@ -68,20 +68,25 @@ if [[ "$("${SUDO_CMD[@]}" whoami)" != "${GAME_USER}" ]]; then
 	exit 21
 fi
 
+# Invoke commands with the tmux socket
+tmux_socket() {
+	"${SUDO_CMD[@]}" tmux -L "$SESSION_NAME" "$@"
+}
+
 # Pipe any given argument to the game server console,
 # sleep for $sleep_time and return its output if $return_stdout is set
 game_command() {
-	"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" wait-for -L "command_lock"
+	tmux_socket wait-for -L "command_lock"
 	if [[ -z "${return_stdout:-}" ]]; then
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" send-keys -t "${SESSION_NAME}":0.0 "$*" Enter
+		tmux_socket send-keys -t "${SESSION_NAME}":0.0 "$*" Enter
 	else
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" pipe-pane -t "${SESSION_NAME}":0.0 "cat > ${GAME_COMMAND_DUMP}"
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" send-keys -t "${SESSION_NAME}":0.0 "$*" Enter
+		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0 "cat > ${GAME_COMMAND_DUMP}"
+		tmux_socket send-keys -t "${SESSION_NAME}":0.0 "$*" Enter
 		sleep "${sleep_time:-0.3}"
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" pipe-pane -t "${SESSION_NAME}":0.0
+		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0
 		"${SUDO_CMD[@]}" cat "${GAME_COMMAND_DUMP}"
 	fi
-	"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" wait-for -U "command_lock"
+	tmux_socket wait-for -U "command_lock"
 }
 
 # Check whether there are player on the server through list
@@ -125,7 +130,7 @@ idle_server_daemon() {
 		if socket_has_session "${SESSION_NAME}"; then
 			# Game server is up and running
 			# Check for active player
-			if [[ -n "$(tmux -L "${SESSION_NAME}" list-clients -t "${SESSION_NAME}":0.0 2> /dev/null)" ]]; then
+			if [[ -n "$(tmux_socket list-clients -t "${SESSION_NAME}":0.0 2> /dev/null)" ]]; then
 				# An administrator is connected to the console, pause player checking
 				echo "An admin is connected to the console. Pause player checking."
 			elif is_player_online; then
@@ -175,12 +180,12 @@ server_start() {
 		# Use a plain file as command buffers for the server startup and switch to a FIFO pipe later
 		"${SUDO_CMD[@]}" touch "${GAME_COMMAND_DUMP}"
 		# Ensure pipe-pine is started before the server itself by splitting the session creation and server startup
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" new-session -s "${SESSION_NAME}" -c "${SERVER_ROOT}" -d /bin/bash
+		tmux_socket new-session -s "${SESSION_NAME}" -c "${SERVER_ROOT}" -d /bin/bash
 		# Mimic GNU screen and allow for both C-a and C-b as prefix
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" set -g prefix2 C-a
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" wait-for -L "command_lock"
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" pipe-pane -t "${SESSION_NAME}":0.0 "cat > ${GAME_COMMAND_DUMP}"
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" send-keys -t "${SESSION_NAME}":0.0 "exec ${SERVER_START_CMD}" Enter
+		tmux_socket set -g prefix2 C-a
+		tmux_socket wait-for -L "command_lock"
+		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0 "cat > ${GAME_COMMAND_DUMP}"
+		tmux_socket send-keys -t "${SESSION_NAME}":0.0 "exec ${SERVER_START_CMD}" Enter
 		for ((i=1; i<=MAX_SERVER_START_TIME; i++)); do
 			sleep "${sleep_time:-0.1}"
 			if ! socket_session_is_alive "${SESSION_NAME}"; then
@@ -188,7 +193,7 @@ server_start() {
 				>&2 "${SUDO_CMD[@]}" cat "${GAME_COMMAND_DUMP}"
 				"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
 				# Session is dead but remain-on-exit left it open; close it for sure
-				"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" kill-session -t "${SESSION_NAME}"
+				tmux_socket kill-session -t "${SESSION_NAME}"
 				exit 1
 			elif "${SUDO_CMD[@]}" grep -q -i "${SERVER_START_SUCCESS}" "${GAME_COMMAND_DUMP}"; then
 				echo -e "\e[39;1m done\e[0m"
@@ -198,11 +203,11 @@ server_start() {
 				>&2 echo -e "Server startup has not finished yet; continuing anyways"
 			fi
 		done
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" pipe-pane -t "${SESSION_NAME}":0.0
+		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0
 		# Let the command buffer be a FIFO pipe
 		"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
 		"${SUDO_CMD[@]}" mkfifo "${GAME_COMMAND_DUMP}"
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" wait-for -U "command_lock"
+		tmux_socket wait-for -U "command_lock"
 	fi
 
 	if [[ "${IDLE_SERVER,,}" == "true" ]]; then
@@ -214,19 +219,19 @@ server_start() {
 
 		# Start the idle server daemon
 		if socket_has_session "${IDLE_SESSION_NAME}"; then
-			"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" kill-session -t "${IDLE_SESSION_NAME}"
+			tmux_socket kill-session -t "${IDLE_SESSION_NAME}"
 			# Restart as soon as the idle_server_daemon has shut down completely
 			for i in {1..100}; do
 				sleep 0.1
 				if ! socket_has_session "${IDLE_SESSION_NAME}"; then
-					"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
+					tmux_socket new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
 					break
 				fi
 				[[ $i -eq 100 ]] && echo -e "An \e[39;1merror\e[0m occurred while trying to reset the idle_server!"
 			done
 		else
 			echo -en "Starting idle server daemon..."
-			"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
+			tmux_socket new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
 			echo -e "\e[39;1m done\e[0m"
 		fi
 	fi
@@ -244,7 +249,7 @@ server_stop() {
 
 		if socket_has_session "${IDLE_SESSION_NAME}"; then
 			echo -en "Stopping idle server daemon..."
-			"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" kill-session -t "${IDLE_SESSION_NAME}"
+			tmux_socket kill-session -t "${IDLE_SESSION_NAME}"
 			echo -e "\e[39;1m done\e[0m"
 		else
 			echo "The corresponding tmux session for ${IDLE_SESSION_NAME} was already dead."
@@ -449,7 +454,7 @@ server_command() {
 # Enter the tmux game session
 server_console() {
 	if socket_has_session "${SESSION_NAME}"; then
-		"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" attach -t "${SESSION_NAME}":0.0
+		tmux_socket attach -t "${SESSION_NAME}":0.0
 	else
 		echo "There is no ${SESSION_NAME} session to connect to."
 	fi
@@ -457,12 +462,12 @@ server_console() {
 
 # Check if there is a session available
 socket_has_session() {
-	"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" has-session -t "${1}":0.0 2> /dev/null
+	tmux_socket has-session -t "${1}":0.0 2> /dev/null
 }
 
 socket_session_is_alive() {
 	if socket_has_session "${1}"; then
-		return "$("${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
+		return "$(tmux_socket list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
 	else
 		return 1
 	fi
