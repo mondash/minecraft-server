@@ -458,7 +458,6 @@ server_console() {
 # Check if there is a session available
 socket_has_session() {
 	"${SUDO_CMD[@]}" tmux -L "${SESSION_NAME}" has-session -t "${1}":0.0 2> /dev/null
-	return $?
 }
 
 socket_session_is_alive() {
