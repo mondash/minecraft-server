@@ -137,7 +137,7 @@ idle_server_daemon() {
 		# Retry in ${CHECK_PLAYER_TIME} seconds
 		sleep "${CHECK_PLAYER_TIME}"
 
-		if socket_has_session "${SESSION_NAME}"; then
+		if has_session; then
 			# Game server is up and running
 			# Check for active player
 			if [[ -n "$(tmux_socket list-clients -t "${SESSION_NAME}":0.0 2> /dev/null)" ]]; then
@@ -154,7 +154,7 @@ idle_server_daemon() {
 					IDLE_SERVER="false" ${INAME} stop
 					# Wait for game server to go down
 					for i in {1..100}; do
-						socket_has_session "${SESSION_NAME}" || break
+						has_session || break
 						[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
 						sleep 0.1
 					done
@@ -182,7 +182,7 @@ idle_server_daemon() {
 # Start the server if it is not already running
 server_start() {
 	# Start the game server
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		echo "A tmux ${SESSION_NAME} session is already running. Please close it first."
 	else
 		echo -n "Starting server... "
@@ -198,7 +198,7 @@ server_start() {
 		tmux_socket send-keys -t "${SESSION_NAME}":0.0 "exec ${SERVER_START_CMD}" Enter
 		for ((i=1; i<=MAX_SERVER_START_TIME; i++)); do
 			sleep "${sleep_time:-0.1}"
-			if ! socket_session_is_alive "${SESSION_NAME}"; then
+			if ! session_is_alive; then
 				echo -e "$(bold "failed")\n"
 				>&2 sudo_cmd cat "${GAME_COMMAND_DUMP}"
 				sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
@@ -228,12 +228,12 @@ server_start() {
 		fi
 
 		# Start the idle server daemon
-		if socket_has_session "${IDLE_SESSION_NAME}"; then
+		if has_idle_session; then
 			tmux_socket kill-session -t "${IDLE_SESSION_NAME}"
 			# Restart as soon as the idle_server_daemon has shut down completely
 			for i in {1..100}; do
 				sleep 0.1
-				if ! socket_has_session "${IDLE_SESSION_NAME}"; then
+				if ! has_idle_session; then
 					tmux_socket new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
 					break
 				fi
@@ -257,7 +257,7 @@ server_stop() {
 			exit 12
 		fi
 
-		if socket_has_session "${IDLE_SESSION_NAME}"; then
+		if has_idle_session; then
 			echo -n "Stopping idle server daemon... "
 			tmux_socket kill-session -t "${IDLE_SESSION_NAME}"
 			bold "done"
@@ -267,7 +267,7 @@ server_stop() {
 	fi
 
 	# Gracefully exit the game server
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		# Game server is up and running, gracefully stop the server when there are still active players
 
 		# Check for active player
@@ -291,7 +291,7 @@ server_stop() {
 
 		# Finish as soon as the server has shut down completely
 		for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
-			if ! socket_has_session "${SESSION_NAME}"; then
+			if ! has_session; then
 				sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
 				bold "done"
 				break
@@ -314,7 +314,7 @@ server_status() {
 			exit 12
 		fi
 
-		if socket_has_session "${IDLE_SESSION_NAME}"; then
+		if has_idle_session; then
 			echo "Idle server daemon status: $(bold "running")"
 		else
 			echo "Idle server daemon status: $(bold "stopped")"
@@ -322,7 +322,7 @@ server_status() {
 	fi
 
 	# Print status information for the game server
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		echo "Status: $(bold "running")"
 
 		# Calculating memory usage
@@ -336,7 +336,7 @@ server_status() {
 
 # Restart the complete server by shutting it down and starting it again
 server_restart() {
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		server_stop
 		server_start
 	else
@@ -355,7 +355,7 @@ backup_files() {
 	echo "Starting backup..."
 	fname="$(date +%Y_%m_%d_%H.%M.%S).tar.gz"
 	sudo_cmd mkdir -p "${BACKUP_DEST}"
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		game_command save-off
 		game_command save-all
 		sleep "${sleep_time:-0.3}"
@@ -388,7 +388,7 @@ backup_restore() {
 	fi
 
 	# Only allow the user to restore a backup if the server is down
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		>&2 echo "The $(bold "server should be down") in order to restore the world data."
 		exit 3
 	fi
@@ -454,7 +454,7 @@ server_command() {
 		exit 1
 	fi
 
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		return_stdout=true game_command "$@"
 	else
 		echo "There is no ${SESSION_NAME} session to connect to."
@@ -463,7 +463,7 @@ server_command() {
 
 # Enter the tmux game session
 server_console() {
-	if socket_has_session "${SESSION_NAME}"; then
+	if has_session; then
 		tmux_socket attach -t "${SESSION_NAME}":0.0
 	else
 		echo "There is no ${SESSION_NAME} session to connect to."
@@ -475,12 +475,16 @@ socket_has_session() {
 	tmux_socket has-session -t "${1}":0.0 2> /dev/null
 }
 
-socket_session_is_alive() {
-	if socket_has_session "${1}"; then
-		return "$(tmux_socket list-panes -t "${1}":0.0 -F '#{pane_dead}' 2> /dev/null)"
-	else
-		return 1
-	fi
+has_session() {
+	socket_has_session "$SESSION_NAME"
+}
+
+has_idle_session() {
+	socket_has_session "$IDLE_SESSION_NAME"
+}
+
+session_is_alive() {
+	has_session && tmux_socket list-panes -t "$SESSION_NAME":0.0 -F '#{pane_dead}' 2> /dev/null
 }
 
 # Help function, no arguments required
