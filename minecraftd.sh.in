@@ -4,6 +4,11 @@
 declare -r INAME="@INAME@"
 declare -r GAME="@GAME@"
 
+# Bolds text in the terminal using ANSI escape codes
+bold() {
+	echo -e "\e[39;1m$1\e[0m"
+}
+
 # General rule for the variable-naming-schema:
 # Variables in capital letters may be passed through the command line others not.
 # Avoid altering any of those later in the code since they may be readonly (IDLE_SERVER is an exception!)
@@ -64,7 +69,7 @@ fi
 
 # Check for sudo rigths
 if [[ "$("${SUDO_CMD[@]}" whoami)" != "${GAME_USER}" ]]; then
-	>&2 echo -e "You have \e[39;1mno permission\e[0m to run commands as $GAME_USER user."
+	>&2 echo "You have $(bold "no permission") to run commands as $GAME_USER user."
 	exit 21
 fi
 
@@ -145,7 +150,7 @@ idle_server_daemon() {
 					# Wait for game server to go down
 					for i in {1..100}; do
 						socket_has_session "${SESSION_NAME}" || break
-						[[ $i -eq 100 ]] && echo -e "An \e[39;1merror\e[0m occurred while trying to reset the idle_server!"
+						[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
 						sleep 0.1
 					done
 					# Reset timer and give the player 300 seconds to connect after pinging
@@ -175,7 +180,7 @@ server_start() {
 	if socket_has_session "${SESSION_NAME}"; then
 		echo "A tmux ${SESSION_NAME} session is already running. Please close it first."
 	else
-		echo -en "Starting server..."
+		echo -n "Starting server... "
 		"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
 		# Use a plain file as command buffers for the server startup and switch to a FIFO pipe later
 		"${SUDO_CMD[@]}" touch "${GAME_COMMAND_DUMP}"
@@ -189,18 +194,18 @@ server_start() {
 		for ((i=1; i<=MAX_SERVER_START_TIME; i++)); do
 			sleep "${sleep_time:-0.1}"
 			if ! socket_session_is_alive "${SESSION_NAME}"; then
-				echo -e "\e[39;1m failed\e[0m\n"
+				echo -e "$(bold "failed")\n"
 				>&2 "${SUDO_CMD[@]}" cat "${GAME_COMMAND_DUMP}"
 				"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
 				# Session is dead but remain-on-exit left it open; close it for sure
 				tmux_socket kill-session -t "${SESSION_NAME}"
 				exit 1
 			elif "${SUDO_CMD[@]}" grep -q -i "${SERVER_START_SUCCESS}" "${GAME_COMMAND_DUMP}"; then
-				echo -e "\e[39;1m done\e[0m"
+				bold "done"
 				break
 			elif [[ $i -eq ${MAX_SERVER_START_TIME} ]]; then
-				echo -e "\e[39;1m skipping\e[0m"
-				>&2 echo -e "Server startup has not finished yet; continuing anyways"
+				bold "skipping"
+				>&2 echo "Server startup has not finished yet; continuing anyways"
 			fi
 		done
 		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0
@@ -227,12 +232,12 @@ server_start() {
 					tmux_socket new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
 					break
 				fi
-				[[ $i -eq 100 ]] && echo -e "An \e[39;1merror\e[0m occurred while trying to reset the idle_server!"
+				[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
 			done
 		else
-			echo -en "Starting idle server daemon..."
+			echo -n "Starting idle server daemon... "
 			tmux_socket new-session -s "${IDLE_SESSION_NAME}" -d "${INAME} idle_server_daemon"
-			echo -e "\e[39;1m done\e[0m"
+			bold "done"
 		fi
 	fi
 }
@@ -248,9 +253,9 @@ server_stop() {
 		fi
 
 		if socket_has_session "${IDLE_SESSION_NAME}"; then
-			echo -en "Stopping idle server daemon..."
+			echo -n "Stopping idle server daemon... "
 			tmux_socket kill-session -t "${IDLE_SESSION_NAME}"
-			echo -e "\e[39;1m done\e[0m"
+			bold "done"
 		else
 			echo "The corresponding tmux session for ${IDLE_SESSION_NAME} was already dead."
 		fi
@@ -266,7 +271,7 @@ server_stop() {
 			# Warning the users through the server console
 			game_command say "Server is going down in 10 seconds! HURRY UP WITH WHATEVER YOU ARE DOING!"
 			game_command save-all
-			echo -en "Server is going down in..."
+			echo -n "Server is going down in..."
 			for i in {1..10}; do
 				game_command say "down in... $(( 10 - i ))"
 				echo -n " $(( 10 - i ))"
@@ -274,7 +279,7 @@ server_stop() {
 			done
 		else
 			# No player was seen on the server through list
-			echo -en "Server is going down..."
+			echo -n "Server is going down... "
 		fi
 
 		game_command stop
@@ -283,10 +288,10 @@ server_stop() {
 		for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
 			if ! socket_has_session "${SESSION_NAME}"; then
 				"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
-				echo -e "\e[39;1m done\e[0m"
+				bold "done"
 				break
 			fi
-			[[ $i -eq ${MAX_SERVER_STOP_TIME} ]] && echo -e "\e[39;1m timed out\e[0m"
+			[[ $i -eq ${MAX_SERVER_STOP_TIME} ]] && bold "timed out"
 			sleep 0.1
 		done
 	else
@@ -305,22 +310,22 @@ server_status() {
 		fi
 
 		if socket_has_session "${IDLE_SESSION_NAME}"; then
-			echo -e "Idle server daemon status:\e[39;1m running\e[0m"
+			echo "Idle server daemon status: $(bold "running")"
 		else
-			echo -e "Idle server daemon status:\e[39;1m stopped\e[0m"
+			echo "Idle server daemon status: $(bold "stopped")"
 		fi
 	fi
 
 	# Print status information for the game server
 	if socket_has_session "${SESSION_NAME}"; then
-		echo -e "Status:\e[39;1m running\e[0m"
+		echo "Status: $(bold "running")"
 
 		# Calculating memory usage
 		for p in $("${SUDO_CMD[@]}" pgrep -f "${MAIN_EXECUTABLE}"); do
 			ps -p"${p}" -O rss | tail -n 1;
 		done | awk '{ count ++; sum += $2 }; END {count --; print "Number of processes =", count, "(tmux +", count, "x server)"; print "Total memory usage =", sum/1024, "MB" ;};'
 	else
-		echo -e "Status:\e[39;1m stopped\e[0m"
+		echo "Status: $(bold "stopped")"
 	fi
 }
 
@@ -355,17 +360,17 @@ backup_files() {
 	else
 		"${SUDO_CMD[@]}" tar -C "${SERVER_ROOT}" -cf "${BACKUP_DEST}/${fname}" ${BACKUP_PATHS} --totals ${BACKUP_FLAGS} 2>&1 | grep -v "tar: Removing leading "
 	fi
-	echo -e "\e[39;1mbackup completed\e[0m\n"
+	echo -e "$(bold "backup completed")\n"
 
-	echo -n "Only keeping the last ${KEEP_BACKUPS} backups and removing the other ones..."
+	echo -n "Only keeping the last ${KEEP_BACKUPS} backups and removing the other ones... "
 	backup_count=$(for f in "${BACKUP_DEST}"/[0-9_.]*; do echo "${f}"; done | wc -l)
 	if [[ $(( backup_count - KEEP_BACKUPS )) -gt 0 ]]; then
 		for old_backup in $(for f in "${BACKUP_DEST}"/[0-9_.]*; do echo "${f}"; done | head -n"$(( backup_count - KEEP_BACKUPS ))"); do
 			"${SUDO_CMD[@]}" rm "${old_backup}";
 		done
-		echo -e "\e[39;1m done\e[0m ($(( backup_count - KEEP_BACKUPS)) backup(s) pruned)"
+		echo "$(bold "done") ($(( backup_count - KEEP_BACKUPS)) backup(s) pruned)"
 	else
-		echo -e "\e[39;1m done\e[0m (no backups pruned)"
+		echo "$(bold  "done") (no backups pruned)"
 	fi
 }
 
@@ -379,7 +384,7 @@ backup_restore() {
 
 	# Only allow the user to restore a backup if the server is down
 	if socket_has_session "${SESSION_NAME}"; then
-		>&2 echo -e "The \e[39;1mserver should be down\e[0m in order to restore the world data."
+		>&2 echo "The $(bold "server should be down") in order to restore the world data."
 		exit 3
 	fi
 
@@ -388,10 +393,10 @@ backup_restore() {
 		echo "Please enter the corresponding number for the backup to be restored: "
 		i=1
 		for f in "${BACKUP_DEST}"/[0-9_.]*; do
-			echo -e "    \e[39;1m$i)\e[0m\t$f"
+			echo -e "    $(bold "$i")\t$f"
 			i=$(( i + 1 ))
 		done
-		echo -en "Restore backup number: "
+		echo -n "Restore backup number: "
 
 		# Read in user input
 		read -r user_choice
@@ -404,11 +409,11 @@ backup_restore() {
 				n=$(( n + 1 ))
 			done
 			if [[ -z $fname ]]; then
-				>&2 echo -e "\e[39;1mFailed\e[0m to interpret your input. Please enter the digit of the presented options."
+				>&2 echo "$(bold "Failed") to interpret your input. Please enter the digit of the presented options."
 				exit 5
 			fi
 		else
-			>&2 echo -e "\e[39;1mFailed\e[0m to interpret your input. Please enter a valid digit for one of the presented options."
+			>&2 echo "$(bold "Failed") to interpret your input. Please enter a valid digit for one of the presented options."
 			exit 6
 		fi
 	elif [[ $# -eq 1 ]]; then
@@ -419,21 +424,21 @@ backup_restore() {
 			if [[ -f "${BACKUP_DEST}"/"$1" ]]; then
 				fname="${BACKUP_DEST}"/"$1"
 			else
-				>&2 echo -e "Sorry, but '$1', is \e[39;1mnot a valid file\e[0m, neither in your current directory nor in the backup folder."
+				>&2 echo "Sorry, but '$1', is $(bold "not a valid file"), neither in your current directory nor in the backup folder."
 				exit 4
 			fi
 		fi
 	elif [[ $# -gt 1 ]]; then
-		>&2 echo -e "\e[39;1mToo many arguments.\e[0m Please pass only the filename for the world data as an argument."
+		>&2 echo "$(bold "Too many arguments.") Please pass only the filename for the world data as an argument."
 		>&2 echo "Or alternatively, no arguments at all to choose from a list of available backups."
 		exit 7
 	fi
 
 	echo "Restoring backup..."
 	if "${SUDO_CMD[@]}" tar -xf "${fname}" -C "${SERVER_ROOT}" 2>&1; then
-		echo -e "\e[39;1mRestoration completed\e[0m"
+		bold "Restoration completed"
 	else
-		echo -e "\e[39;1mFailed to restore backup.\e[0m"
+		bold "Failed to restore backup."
 	fi
 }
 
