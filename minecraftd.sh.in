@@ -9,42 +9,46 @@ bold() {
 	echo -e "\e[39;1m$1\e[0m"
 }
 
+default_variable() {
+	if [[ -n "${!1}" ]]; then
+		declare -gr "$1"="${!1}"
+	else
+		declare -g "$1"="$2"
+	fi
+}
+
 # General rule for the variable-naming-schema:
 # Variables in capital letters may be passed through the command line others not.
-# Avoid altering any of those later in the code since they may be readonly (IDLE_SERVER is an exception!)
+# Avoid altering any of those later in the code since they may be readonly
 
 # You may use this script for any game server of your choice, just alter the config file
-[[ -n "$SERVER_ROOT" ]]  && declare -r SERVER_ROOT=$SERVER_ROOT   || SERVER_ROOT="@SERVER_ROOT@"
-[[ -n "$BACKUP_DEST" ]]  && declare -r BACKUP_DEST=$BACKUP_DEST   || BACKUP_DEST="@BACKUP_DEST@"
-[[ -n "$BACKUP_PATHS" ]] && declare -r BACKUP_PATHS=$BACKUP_PATHS || BACKUP_PATHS="@BACKUP_PATHS@"
-[[ -n "$BACKUP_FLAGS" ]] && declare -r BACKUP_FLAGS=$BACKUP_FLAGS || BACKUP_FLAGS="@BACKUP_FLAGS@"
-[[ -n "$KEEP_BACKUPS" ]] && declare -r KEEP_BACKUPS=$KEEP_BACKUPS || KEEP_BACKUPS="@KEEP_BACKUPS@"
-[[ -n "$GAME_USER" ]]    && declare -r GAME_USER=$GAME_USER       || GAME_USER="@GAME_USER@"
-[[ -n "$MAIN_EXECUTABLE" ]] && declare -r MAIN_EXECUTABLE=$MAIN_EXECUTABLE || MAIN_EXECUTABLE="@MAIN_EXECUTABLE@"
-[[ -n "$SESSION_NAME" ]] && declare -r SESSION_NAME=$SESSION_NAME || SESSION_NAME="@SESSION_NAME@"
+default_variable "SERVER_ROOT" "@SERVER_ROOT@"
+default_variable "BACKUP_DEST" "@BACKUP_DEST@"
+default_variable "BACKUP_PATHS" "@BACKUP_PATHS@"
+default_variable "BACKUP_FLAGS" "@BACKUP_FLAGS@"
+default_variable "KEEP_BACKUPS" "@KEEP_BACKUPS@"
+default_variable "GAME_USER" "@GAME_USER@"
+default_variable "MAIN_EXECUTABLE" "@MAIN_EXECUTABLE@"
+default_variable "SESSION_NAME" "@SESSION_NAME@"
 
 # Command and parameter declaration with which to start the server
-[[ -n "$SERVER_START_CMD" ]] && declare -r SERVER_START_CMD=$SERVER_START_CMD || SERVER_START_CMD="@SERVER_START_CMD@"
-[[ -n "$SERVER_START_SUCCESS" ]] && declare -r SERVER_START_SUCCESS=$SERVER_START_SUCCESS || SERVER_START_SUCCESS="@SERVER_START_SUCCESS@"
+default_variable "SERVER_START_CMD" "@SERVER_START_CMD@"
+default_variable "SERVER_START_SUCCESS" "@SERVER_START_SUCCESS@"
 
 # System parameters for the control script
-[[ -n "$IDLE_SERVER" ]]       && tmp_IDLE_SERVER=$IDLE_SERVER   || IDLE_SERVER="@IDLE_SERVER@"
-[[ -n "$IDLE_SESSION_NAME" ]] && declare -r IDLE_SESSION_NAME=$IDLE_SESSION_NAME || IDLE_SESSION_NAME="@IDLE_SESSION_NAME@"
-[[ -n "$GAME_PORT" ]]         && declare -r GAME_PORT=$GAME_PORT       || GAME_PORT="@GAME_PORT@"
-[[ -n "$CHECK_PLAYER_TIME" ]] && declare -r CHECK_PLAYER_TIME=$CHECK_PLAYER_TIME || CHECK_PLAYER_TIME="@CHECK_PLAYER_TIME@"
-[[ -n "$IDLE_IF_TIME" ]]      && declare -r IDLE_IF_TIME=$IDLE_IF_TIME || IDLE_IF_TIME="@IDLE_IF_TIME@"
+default_variable "IDLE_SERVER" "@IDLE_SERVER"
+default_variable "IDLE_SESSION_NAME" "@IDLE_SESSION_NAME@"
+default_variable "GAME_PORT" "@GAME_PORT@"
+default_variable "CHECK_PLAYER_TIME" "@CHECK_PLAYER_TIME@"
+default_variable "IDLE_IF_TIME" "@IDLE_IF_TIME@"
 
 # Additional configuration options which only few may need to alter
-[[ -n "$GAME_COMMAND_DUMP" ]] && declare -r GAME_COMMAND_DUMP=$GAME_COMMAND_DUMP || GAME_COMMAND_DUMP="@GAME_COMMAND_DUMP@"
-[[ -n "$MAX_SERVER_START_TIME" ]] && declare -r MAX_SERVER_START_TIME=$MAX_SERVER_START_TIME || MAX_SERVER_START_TIME="@MAX_SERVER_START_TIME@"
-[[ -n "$MAX_SERVER_STOP_TIME" ]] && declare -r MAX_SERVER_STOP_TIME=$MAX_SERVER_STOP_TIME || MAX_SERVER_STOP_TIME="@MAX_SERVER_STOP_TIME@"
+default_variable "GAME_COMMAND_DUMP" "@GAME_COMMAND_DUMP@"
+default_variable "MAX_SERVER_START_TIME" "@MAX_SERVER_START_TIME@"
+default_variable "MAX_SERVER_STOP_TIME" "@MAX_SERVER_STOP_TIME@"
 
 # Variables passed over the command line will always override the one from a config file
 source /etc/conf.d/"@GAME@" 2>/dev/null || >&2 echo "Could not source /etc/conf.d/@GAME@"
-
-# Preserve the content of IDLE_SERVER without making it readonly
-[[ -n $tmp_IDLE_SERVER ]] && IDLE_SERVER=$tmp_IDLE_SERVER
-
 
 # Strictly disallow uninitialized Variables
 set -u
@@ -130,7 +134,7 @@ idle_server_daemon() {
 	fi
 
 	# Time in seconds for which no player was on the server
-	no_player=0
+	local no_player=0
 
 	while true; do
 		printf "no_player: %10ss  check_player_time: %10ss  idle_if_time: %10ss\n" "$no_player" "$CHECK_PLAYER_TIME" "$IDLE_IF_TIME"
@@ -143,39 +147,34 @@ idle_server_daemon() {
 			if [[ -n "$(tmux_socket list-clients -t "$SESSION_NAME":0.0 2> /dev/null)" ]]; then
 				# An administrator is connected to the console, pause player checking
 				echo "An admin is connected to the console. Pause player checking."
+				continue
 			elif is_player_online; then
 				# Reset timer since there is an active player on the server
 				no_player=0
-			else
-				# No player was seen on the server through list
+				continue
+			elif [[ "$no_player" -lt "$IDLE_IF_TIME" ]]; then
+				# Increment timer since no player was seen on the server
 				no_player=$(( no_player + CHECK_PLAYER_TIME ))
-				# Stop the game server if no player was active for at least $IDLE_IF_TIME
-				if [[ "$no_player" -ge "$IDLE_IF_TIME" ]]; then
-					IDLE_SERVER="false" $INAME stop
-					# Wait for game server to go down
-					for i in {1..100}; do
-						has_session || break
-						[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
-						sleep 0.1
-					done
-					# Reset timer and give the player 300 seconds to connect after pinging
-					no_player=$(( IDLE_IF_TIME - 300 ))
-					# Game server is down, listen on port $GAME_PORT for incoming connections
-					echo -n "Netcat: "
-					"${NETCAT_CMD[@]}" -v -l -p "$GAME_PORT" 2>&1 | (grep -m1 -i "connect" && pkill -P $$ "${NETCAT_CMD[@]}") || true
-					echo "Netcat caught a connection. The server is coming up again..."
-					IDLE_SERVER="false" $INAME start
-				fi
+				continue
 			fi
-		else
-			# Reset timer and give the player 300 seconds to connect after pinging
-			no_player=$(( IDLE_IF_TIME - 300 ))
-			# Game server is down, listen on port $GAME_PORT for incoming connections
-			echo -n "Netcat: "
-			"${NETCAT_CMD[@]}" -v -l -p "$GAME_PORT" 2>&1 | (grep -m1 -i "connect" && pkill -P $$ "${NETCAT_CMD[@]}") || true
-			echo "Netcat caught a connection. The server is coming up again..."
-			IDLE_SERVER="false" $INAME start
+
+			# Stop the game server if no player was active for at least $IDLE_IF_TIME
+			IDLE_SERVER="false" $INAME stop
+			# Wait for game server to go down
+			for i in {1..100}; do
+				has_session || break
+				[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
+				sleep 0.1
+			done
 		fi
+
+		# Reset timer and give the player 300 seconds to connect after pinging
+		no_player=$(( IDLE_IF_TIME - 300 ))
+		# Game server is down, listen on port $GAME_PORT for incoming connections
+		echo -n "Netcat: "
+		"${NETCAT_CMD[@]}" -v -l -p "$GAME_PORT" 2>&1 | (grep -m1 -i "connect" && pkill -P $$ "${NETCAT_CMD[@]}") || true
+		echo "Netcat caught a connection. The server is coming up again..."
+		IDLE_SERVER="false" $INAME start
 	done
 }
 
@@ -229,21 +228,19 @@ server_start() {
 
 		# Start the idle server daemon
 		if has_idle_session; then
+			echo "Resetting idle server daemon..."
 			tmux_socket kill-session -t "$IDLE_SESSION_NAME"
 			# Restart as soon as the idle_server_daemon has shut down completely
 			for i in {1..100}; do
 				sleep 0.1
-				if ! has_idle_session; then
-					tmux_socket new-session -s "$IDLE_SESSION_NAME" -d "$INAME idle_server_daemon"
-					break
-				fi
+				has_idle_session || break
 				[[ $i -eq 100 ]] && echo "An $(bold "error") occurred while trying to reset the idle_server!"
 			done
-		else
-			echo -n "Starting idle server daemon... "
-			tmux_socket new-session -s "$IDLE_SESSION_NAME" -d "$INAME idle_server_daemon"
-			bold "done"
 		fi
+
+		echo -n "Starting idle server daemon... "
+		tmux_socket new-session -s "$IDLE_SESSION_NAME" -d "$INAME idle_server_daemon"
+		bold "done"
 	fi
 }
 
@@ -251,12 +248,6 @@ server_start() {
 server_stop() {
 	# Quit the idle daemon
 	if [[ "${IDLE_SERVER,,}" == "true" ]]; then
-		# Check for the availability of the netcat (nc) binaries
-		if [[ -z "${NETCAT_CMD[*]}" ]]; then
-			>&2 echo "The netcat binaries are needed for suspending an idle server."
-			exit 12
-		fi
-
 		if has_idle_session; then
 			echo -n "Stopping idle server daemon... "
 			tmux_socket kill-session -t "$IDLE_SESSION_NAME"
@@ -266,54 +257,46 @@ server_stop() {
 		fi
 	fi
 
-	# Gracefully exit the game server
-	if has_session; then
-		# Game server is up and running, gracefully stop the server when there are still active players
+	if ! has_session; then
+		echo "The corresponding tmux session for $SESSION_NAME was already dead."
+		return
+	fi
 
-		# Check for active player
-		if is_player_online; then
-			# Player(s) were seen on the server through list (or an error occurred)
-			# Warning the users through the server console
-			game_command say "Server is going down in 10 seconds! HURRY UP WITH WHATEVER YOU ARE DOING!"
-			game_command save-all
-			echo -n "Server is going down in..."
-			for i in {1..10}; do
-				game_command say "down in... $(( 10 - i ))"
-				echo -n " $(( 10 - i ))"
-				sleep 1
-			done
-		else
-			# No player was seen on the server through list
-			echo -n "Server is going down... "
-		fi
-
-		game_command stop
-
-		# Finish as soon as the server has shut down completely
-		for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
-			if ! has_session; then
-				sudo_cmd rm -f "$GAME_COMMAND_DUMP"
-				bold "done"
-				break
-			fi
-			[[ $i -eq $MAX_SERVER_STOP_TIME ]] && bold "timed out"
-			sleep 0.1
+	# Game server is up and running, gracefully stop the server when there are still active players
+	if is_player_online; then
+		# Player(s) were seen on the server through list (or an error occurred)
+		# Warning the users through the server console
+		game_command say "Server is going down in 10 seconds! HURRY UP WITH WHATEVER YOU ARE DOING!"
+		game_command save-all
+		echo -n "Server is going down in..."
+		for i in {1..10}; do
+			game_command say "down in... $(( 10 - i ))"
+			echo -n " $(( 10 - i ))"
+			sleep 1
 		done
 	else
-		echo "The corresponding tmux session for $SESSION_NAME was already dead."
+		# No player was seen on the server through list
+		echo -n "Server is going down... "
 	fi
+
+	game_command stop
+
+	# Finish as soon as the server has shut down completely
+	for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
+		if ! has_session; then
+			sudo_cmd rm -f "$GAME_COMMAND_DUMP"
+			bold "done"
+			break
+		fi
+		[[ $i -eq $MAX_SERVER_STOP_TIME ]] && bold "timed out"
+		sleep 0.1
+	done
 }
 
 # Print whether the server is running and if so give some information about memory usage and threads
 server_status() {
 	# Print status information about the idle daemon
 	if [[ "${IDLE_SERVER,,}" == "true" ]]; then
-		# Check for the availability of the netcat (nc) binaries
-		if [[ -z "${NETCAT_CMD[*]}" ]]; then
-			>&2 echo "The netcat binaries are needed for suspending an idle server."
-			exit 12
-		fi
-
 		if has_idle_session; then
 			echo "Idle server daemon status: $(bold "running")"
 		else
@@ -336,12 +319,12 @@ server_status() {
 
 # Restart the complete server by shutting it down and starting it again
 server_restart() {
-	if has_session; then
-		server_stop
-		server_start
-	else
-		server_start
-	fi
+	has_session && server_stop
+	server_start
+}
+
+create_backup() {
+	sudo_cmd tar -C "$SERVER_ROOT" -cf "$BACKUP_DEST/$1" $BACKUP_PATHS --totals $BACKUP_FLAGS 2>&1 | grep -v "tar: Removing leading "
 }
 
 # Backup the directories specified in BACKUP_PATHS
@@ -360,23 +343,20 @@ backup_files() {
 		game_command save-all
 		sleep "${sleep_time:-0.3}"
 		sync && wait
-		sudo_cmd tar -C "$SERVER_ROOT" -cf "$BACKUP_DEST/$fname" $BACKUP_PATHS --totals $BACKUP_FLAGS 2>&1 | grep -v "tar: Removing leading "
+		create_backup "$fname"
 		game_command save-on
 	else
-		sudo_cmd tar -C "$SERVER_ROOT" -cf "$BACKUP_DEST/$fname" $BACKUP_PATHS --totals $BACKUP_FLAGS 2>&1 | grep -v "tar: Removing leading "
+		create_backup "$fname"
 	fi
 	echo -e "$(bold "backup completed")\n"
 
 	echo -n "Only keeping the last $KEEP_BACKUPS backups and removing the other ones... "
-	backup_count=$(for f in "$BACKUP_DEST"/[0-9_.]*; do echo "$f"; done | wc -l)
-	if [[ $(( backup_count - KEEP_BACKUPS )) -gt 0 ]]; then
-		for old_backup in $(for f in "$BACKUP_DEST"/[0-9_.]*; do echo "$f"; done | head -n"$(( backup_count - KEEP_BACKUPS ))"); do
-			sudo_cmd rm "$old_backup";
-		done
-		echo "$(bold "done") ($(( backup_count - KEEP_BACKUPS)) backup(s) pruned)"
-	else
-		echo "$(bold  "done") (no backups pruned)"
-	fi
+	old_backups=$(find "$BACKUP_DEST" -type f -name "[0-9_.]*" | sort | head -n -"$KEEP_BACKUPS")
+	old_backups_count=$(echo "$old_backups" | wc -l)
+	while IFS= read -r file; do
+		sudo_cmd rm "$file"
+	done <<< "$old_backups"
+	echo "$(bold "done") (${old_backups_count:-no}) backup(s) pruned)"
 }
 
 # Restore backup
