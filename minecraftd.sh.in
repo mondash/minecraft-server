@@ -58,6 +58,16 @@ else
 	SUDO_CMD=("sudo" "-u" "${GAME_USER}")
 fi
 
+sudo_cmd() {
+	"${SUDO_CMD[@]}" "$@"
+}
+
+# Check for sudo rigths
+if [[ "$(sudo_cmd whoami)" != "${GAME_USER}" ]]; then
+	>&2 echo "You have $(bold "no permission") to run commands as $GAME_USER user."
+	exit 21
+fi
+
 # Choose which flavor of netcat is to be used
 if command -v netcat &> /dev/null; then
 	NETCAT_CMD=("netcat")
@@ -67,15 +77,10 @@ else
 	NETCAT_CMD=()
 fi
 
-# Check for sudo rigths
-if [[ "$("${SUDO_CMD[@]}" whoami)" != "${GAME_USER}" ]]; then
-	>&2 echo "You have $(bold "no permission") to run commands as $GAME_USER user."
-	exit 21
-fi
 
 # Invoke commands with the tmux socket
 tmux_socket() {
-	"${SUDO_CMD[@]}" tmux -L "$SESSION_NAME" "$@"
+	sudo_cmd tmux -L "$SESSION_NAME" "$@"
 }
 
 # Pipe any given argument to the game server console,
@@ -89,7 +94,7 @@ game_command() {
 		tmux_socket send-keys -t "${SESSION_NAME}":0.0 "$*" Enter
 		sleep "${sleep_time:-0.3}"
 		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0
-		"${SUDO_CMD[@]}" cat "${GAME_COMMAND_DUMP}"
+		sudo_cmd cat "${GAME_COMMAND_DUMP}"
 	fi
 	tmux_socket wait-for -U "command_lock"
 }
@@ -181,9 +186,9 @@ server_start() {
 		echo "A tmux ${SESSION_NAME} session is already running. Please close it first."
 	else
 		echo -n "Starting server... "
-		"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
+		sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
 		# Use a plain file as command buffers for the server startup and switch to a FIFO pipe later
-		"${SUDO_CMD[@]}" touch "${GAME_COMMAND_DUMP}"
+		sudo_cmd touch "${GAME_COMMAND_DUMP}"
 		# Ensure pipe-pine is started before the server itself by splitting the session creation and server startup
 		tmux_socket new-session -s "${SESSION_NAME}" -c "${SERVER_ROOT}" -d /bin/bash
 		# Mimic GNU screen and allow for both C-a and C-b as prefix
@@ -195,12 +200,12 @@ server_start() {
 			sleep "${sleep_time:-0.1}"
 			if ! socket_session_is_alive "${SESSION_NAME}"; then
 				echo -e "$(bold "failed")\n"
-				>&2 "${SUDO_CMD[@]}" cat "${GAME_COMMAND_DUMP}"
-				"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
+				>&2 sudo_cmd cat "${GAME_COMMAND_DUMP}"
+				sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
 				# Session is dead but remain-on-exit left it open; close it for sure
 				tmux_socket kill-session -t "${SESSION_NAME}"
 				exit 1
-			elif "${SUDO_CMD[@]}" grep -q -i "${SERVER_START_SUCCESS}" "${GAME_COMMAND_DUMP}"; then
+			elif sudo_cmd grep -q -i "${SERVER_START_SUCCESS}" "${GAME_COMMAND_DUMP}"; then
 				bold "done"
 				break
 			elif [[ $i -eq ${MAX_SERVER_START_TIME} ]]; then
@@ -210,8 +215,8 @@ server_start() {
 		done
 		tmux_socket pipe-pane -t "${SESSION_NAME}":0.0
 		# Let the command buffer be a FIFO pipe
-		"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
-		"${SUDO_CMD[@]}" mkfifo "${GAME_COMMAND_DUMP}"
+		sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
+		sudo_cmd mkfifo "${GAME_COMMAND_DUMP}"
 		tmux_socket wait-for -U "command_lock"
 	fi
 
@@ -287,7 +292,7 @@ server_stop() {
 		# Finish as soon as the server has shut down completely
 		for ((i=1; i<=MAX_SERVER_STOP_TIME; i++)); do
 			if ! socket_has_session "${SESSION_NAME}"; then
-				"${SUDO_CMD[@]}" rm -f "${GAME_COMMAND_DUMP}"
+				sudo_cmd rm -f "${GAME_COMMAND_DUMP}"
 				bold "done"
 				break
 			fi
@@ -321,7 +326,7 @@ server_status() {
 		echo "Status: $(bold "running")"
 
 		# Calculating memory usage
-		for p in $("${SUDO_CMD[@]}" pgrep -f "${MAIN_EXECUTABLE}"); do
+		for p in $(sudo_cmd pgrep -f "${MAIN_EXECUTABLE}"); do
 			ps -p"${p}" -O rss | tail -n 1;
 		done | awk '{ count ++; sum += $2 }; END {count --; print "Number of processes =", count, "(tmux +", count, "x server)"; print "Total memory usage =", sum/1024, "MB" ;};'
 	else
@@ -349,16 +354,16 @@ backup_files() {
 
 	echo "Starting backup..."
 	fname="$(date +%Y_%m_%d_%H.%M.%S).tar.gz"
-	"${SUDO_CMD[@]}" mkdir -p "${BACKUP_DEST}"
+	sudo_cmd mkdir -p "${BACKUP_DEST}"
 	if socket_has_session "${SESSION_NAME}"; then
 		game_command save-off
 		game_command save-all
 		sleep "${sleep_time:-0.3}"
 		sync && wait
-		"${SUDO_CMD[@]}" tar -C "${SERVER_ROOT}" -cf "${BACKUP_DEST}/${fname}" ${BACKUP_PATHS} --totals ${BACKUP_FLAGS} 2>&1 | grep -v "tar: Removing leading "
+		sudo_cmd tar -C "${SERVER_ROOT}" -cf "${BACKUP_DEST}/${fname}" ${BACKUP_PATHS} --totals ${BACKUP_FLAGS} 2>&1 | grep -v "tar: Removing leading "
 		game_command save-on
 	else
-		"${SUDO_CMD[@]}" tar -C "${SERVER_ROOT}" -cf "${BACKUP_DEST}/${fname}" ${BACKUP_PATHS} --totals ${BACKUP_FLAGS} 2>&1 | grep -v "tar: Removing leading "
+		sudo_cmd tar -C "${SERVER_ROOT}" -cf "${BACKUP_DEST}/${fname}" ${BACKUP_PATHS} --totals ${BACKUP_FLAGS} 2>&1 | grep -v "tar: Removing leading "
 	fi
 	echo -e "$(bold "backup completed")\n"
 
@@ -366,7 +371,7 @@ backup_files() {
 	backup_count=$(for f in "${BACKUP_DEST}"/[0-9_.]*; do echo "${f}"; done | wc -l)
 	if [[ $(( backup_count - KEEP_BACKUPS )) -gt 0 ]]; then
 		for old_backup in $(for f in "${BACKUP_DEST}"/[0-9_.]*; do echo "${f}"; done | head -n"$(( backup_count - KEEP_BACKUPS ))"); do
-			"${SUDO_CMD[@]}" rm "${old_backup}";
+			sudo_cmd rm "${old_backup}";
 		done
 		echo "$(bold "done") ($(( backup_count - KEEP_BACKUPS)) backup(s) pruned)"
 	else
@@ -435,7 +440,7 @@ backup_restore() {
 	fi
 
 	echo "Restoring backup..."
-	if "${SUDO_CMD[@]}" tar -xf "${fname}" -C "${SERVER_ROOT}" 2>&1; then
+	if sudo_cmd tar -xf "${fname}" -C "${SERVER_ROOT}" 2>&1; then
 		bold "Restoration completed"
 	else
 		bold "Failed to restore backup."
