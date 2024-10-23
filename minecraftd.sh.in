@@ -547,7 +547,6 @@ case "${1:-}" in
 
 	-h|--help)
 	help
-	exit 0
 	;;
 
 	*)
@@ -555,5 +554,3 @@ case "${1:-}" in
 	exit 1
 	;;
 esac
-
-exit 0
