@@ -38,7 +38,8 @@ MAX_SERVER_STOP_TIME = 100
 
 define replace_all
 	cp -a $(1) $(2)
-	sed -i \
+	@echo "Replacing defaults in $(2)"
+	@sed -i \
 		-e 's#@INAME@#$(INAME)#g' \
 		-e 's#@GAME@#$(GAME)#g' \
 		-e 's#@SERVER_ROOT@#$(SERVER_ROOT)#g' \
@@ -63,7 +64,7 @@ define replace_all
 endef
 
 all: $(OBJECTS)
-	echo $(OBJECTS)
+	@echo $(OBJECTS)
 
 %.sh: %.sh.in
 	$(call replace_all,$<,$@)
