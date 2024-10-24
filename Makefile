@@ -34,6 +34,10 @@ GAME_COMMAND_DUMP = /tmp/$${INAME}_$${SESSION_NAME}_command_dump.txt
 MAX_SERVER_START_TIME = 150
 MAX_SERVER_STOP_TIME = 100
 
+SYSUSER = $(DESTDIR)$(libdir)/sysusers.d/$(INAME).conf
+TMPFILE = $(DESTDIR)$(libdir)/tmpfiles.d/$(INAME).conf
+LOGDIR = $(DESTDIR)/var/log/$(GAME)
+
 .MAIN = all
 
 define replace_all
@@ -97,8 +101,8 @@ install:
 	$(INSTALL_DATA) -D minecraftd.service        "$(DESTDIR)$(libdir)/systemd/system/$(INAME).service"
 	$(INSTALL_DATA) -D minecraftd-backup.service "$(DESTDIR)$(libdir)/systemd/system/$(INAME)-backup.service"
 	$(INSTALL_DATA) -D minecraftd-backup.timer   "$(DESTDIR)$(libdir)/systemd/system/$(INAME)-backup.timer"
-	$(INSTALL_DATA) -D minecraftd.sysusers       "$(DESTDIR)$(libdir)/sysusers.d/$(INAME).conf"
-	$(INSTALL_DATA) -D minecraftd.tmpfiles       "$(DESTDIR)$(libdir)/tmpfiles.d/$(INAME).conf"
+	$(INSTALL_DATA) -D minecraftd.sysusers       "$(SYSUSER)"
+	$(INSTALL_DATA) -D minecraftd.tmpfiles       "$(TMPFILE)"
 
 uninstall:
 	rm -f "$(bindir)/$(INAME)"
@@ -108,3 +112,30 @@ uninstall:
 	rm -f "$(libdir)/systemd/system/$(INAME)-backup.timer"
 	rm -f "$(libdir)/sysusers.d/$(INAME).conf"
 	rm -f "$(libdir)/tmpfiles.d/$(INAME).conf"
+
+# TODO enable and start?
+stuff:
+	install -Dm2755 "$(SERVER_ROOT)/logs"
+	ln -s "$(SERVER_ROOT)/logs" "$(LOGDIR)"
+	chmod g+s "$(SERVER_ROOT)"
+	systemctl daemon-reload
+	systemd-sysusers "$(SYSUSER)"
+	systemd-tmpfiles --create "$(TMPFILE)"
+	systemctl enable "$(INAME)"
+	systemctl enable "$(INAME)-backup"
+	systemctl enable "$(INAME)-backup.timer"
+	systemctl start "$(INAME)"
+
+# TODO Stop and disable?
+preunstuff:
+	systemctl stop "$(INAME)"
+	systemctl disable "$(INAME)"
+	systemctl stop "$(INAME)-backup"
+	systemctl disable "$(INAME)-backup"
+	systemctl stop "$(INAME)-backup.timer"
+	systemctl disable "$(INAME)-backup.timer"
+
+postunstuff:
+	systemctl-tmpfiles --remove "$(TMPFILE)"
+	rm -f "$(LOGDIR)"
+	systemctl daemon-reload
