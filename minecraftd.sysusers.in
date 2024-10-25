@@ -1,1 +1,1 @@
-u @GAME_USER@ - "@GAME@ Server" @SERVER_ROOT@ /bin/bash
+u @GAME_USER@ - "@GAME@ server" @SERVER_ROOT@ /bin/bash
