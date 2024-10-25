@@ -115,7 +115,7 @@ uninstall:
 
 # TODO enable and start?
 stuff:
-	install -Dm2755 "$(SERVER_ROOT)/logs"
+	install -dm2755 "$(SERVER_ROOT)/logs"
 	ln -s "$(SERVER_ROOT)/logs" "$(LOGDIR)"
 	chmod g+s "$(SERVER_ROOT)"
 	systemctl daemon-reload
@@ -136,6 +136,6 @@ preunstuff:
 	systemctl disable "$(INAME)-backup.timer"
 
 postunstuff:
-	systemctl-tmpfiles --remove "$(TMPFILE)"
+	systemd-tmpfiles --remove "$(TMPFILE)"
 	rm -f "$(LOGDIR)"
 	systemctl daemon-reload
