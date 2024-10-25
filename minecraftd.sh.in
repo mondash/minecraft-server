@@ -484,7 +484,7 @@ has_idle_session() {
 }
 
 session_is_alive() {
-	has_session && tmux_socket list-panes -t "$SESSION_NAME":0.0 -F '#{pane_dead}' 2> /dev/null
+	has_session && [[ "$(tmux_socket list-panes -t "$SESSION_NAME":0.0 -F '#{pane_dead}' 2> /dev/null)" == "0" ]]
 }
 
 # Help function, no arguments required
