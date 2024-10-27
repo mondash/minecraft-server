@@ -155,14 +155,10 @@ idle_server_daemon() {
 
 	while true; do
 		printf "no_player: %10ss  check_player_time: %10ss  idle_if_time: %10ss\n" "$no_player" "$CHECK_PLAYER_TIME" "$IDLE_IF_TIME"
-		# Retry in $CHECK_PLAYER_TIME seconds
 		sleep "$CHECK_PLAYER_TIME"
 
 		if has_session; then
-			# Game server is up and running
-			# Check for active player
 			if [[ -n "$(tmux_socket list-clients -t "$SESSION_NAME":0.0 2> /dev/null)" ]]; then
-				# An administrator is connected to the console, pause player checking
 				echo "An admin is connected to the console. Pause player checking."
 				continue
 			elif is_player_online; then
