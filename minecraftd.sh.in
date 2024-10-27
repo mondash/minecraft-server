@@ -87,6 +87,23 @@ tmux_socket() {
 	sudo_cmd tmux -L "$SESSION_NAME" "$@"
 }
 
+# Check if there is a session available
+socket_has_session() {
+	tmux_socket has-session -t "$1":0.0 2> /dev/null
+}
+
+has_session() {
+	socket_has_session "$SESSION_NAME"
+}
+
+has_idle_session() {
+	socket_has_session "$IDLE_SESSION_NAME"
+}
+
+session_is_alive() {
+	has_session && [[ "$(tmux_socket list-panes -t "$SESSION_NAME":0.0 -F '#{pane_dead}' 2> /dev/null)" == "0" ]]
+}
+
 # Pipe any given argument to the game server console,
 # sleep for $sleep_time and return its output if $return_stdout is set
 game_command() {
@@ -450,23 +467,6 @@ server_console() {
 	fi
 }
 
-# Check if there is a session available
-socket_has_session() {
-	tmux_socket has-session -t "$1":0.0 2> /dev/null
-}
-
-has_session() {
-	socket_has_session "$SESSION_NAME"
-}
-
-has_idle_session() {
-	socket_has_session "$IDLE_SESSION_NAME"
-}
-
-session_is_alive() {
-	has_session && [[ "$(tmux_socket list-panes -t "$SESSION_NAME":0.0 -F '#{pane_dead}' 2> /dev/null)" == "0" ]]
-}
-
 # Help function, no arguments required
 help() {
 	cat <<-EOF
@@ -488,49 +488,16 @@ help() {
 }
 
 case "${1:-}" in
-	start)
-	server_start
-	;;
-
-	stop)
-	server_stop
-	;;
-
-	status)
-	server_status
-	;;
-
-	restart)
-	server_restart
-	;;
-
-	console)
-	server_console
-	;;
-
-	command)
-	server_command "${@:2}"
-	;;
-
-	backup)
-	backup_files
-	;;
-
-	restore)
-	backup_restore "${@:2}"
-	;;
-
-	idle_server_daemon)
+	start) server_start ;;
+	stop)	server_stop ;;
+	status)	server_status ;;
+	restart) server_restart ;;
+	console) server_console ;;
+	command) server_command "${@:2}" ;;
+	backup) backup_files ;;
+	restore) backup_restore "${@:2}" ;;
 	# This shall be a hidden function which should only be invoked internally
-	idle_server_daemon
-	;;
-
-	-h|--help)
-	help
-	;;
-
-	*)
-	help
-	exit 1
-	;;
+	idle_server_daemon) idle_server_daemon ;;
+	-h|--help) help ;;
+	*) help; exit 1 ;;
 esac
