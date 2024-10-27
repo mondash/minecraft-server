@@ -104,17 +104,6 @@ install:
 	$(INSTALL_DATA) -D minecraftd.sysusers       "$(SYSUSER)"
 	$(INSTALL_DATA) -D minecraftd.tmpfiles       "$(TMPFILE)"
 
-uninstall:
-	rm -f "$(bindir)/$(INAME)"
-	rm -f "$(confdir)/$(GAME)"
-	rm -f "$(libdir)/systemd/system/$(INAME).service"
-	rm -f "$(libdir)/systemd/system/$(INAME)-backup.service"
-	rm -f "$(libdir)/systemd/system/$(INAME)-backup.timer"
-	rm -f "$(libdir)/sysusers.d/$(INAME).conf"
-	rm -f "$(libdir)/tmpfiles.d/$(INAME).conf"
-
-# TODO enable and start?
-stuff:
 	install -dm2755 "$(SERVER_ROOT)/logs"
 	ln -s "$(SERVER_ROOT)/logs" "$(LOGDIR)"
 	chmod g+s "$(SERVER_ROOT)"
@@ -124,10 +113,8 @@ stuff:
 	systemctl enable "$(INAME)"
 	systemctl enable "$(INAME)-backup"
 	systemctl enable "$(INAME)-backup.timer"
-	systemctl start "$(INAME)"
 
-# TODO Stop and disable?
-preunstuff:
+uninstall:
 	systemctl stop "$(INAME)"
 	systemctl disable "$(INAME)"
 	systemctl stop "$(INAME)-backup"
@@ -135,7 +122,16 @@ preunstuff:
 	systemctl stop "$(INAME)-backup.timer"
 	systemctl disable "$(INAME)-backup.timer"
 
-postunstuff:
-	systemd-tmpfiles --remove "$(TMPFILE)"
+	rm -f "$(bindir)/$(INAME)"
+	rm -f "$(confdir)/$(GAME)"
+	rm -f "$(libdir)/systemd/system/$(INAME).service"
+	rm -f "$(libdir)/systemd/system/$(INAME)-backup.service"
+	rm -f "$(libdir)/systemd/system/$(INAME)-backup.timer"
+	rm -f "$(libdir)/sysusers.d/$(INAME).conf"
+	rm -f "$(libdir)/tmpfiles.d/$(INAME).conf"
+
+	userdel -r "$(GAME_USER)"
+	groupdel "$(GAME_USER)"
+
 	rm -f "$(LOGDIR)"
 	systemctl daemon-reload
